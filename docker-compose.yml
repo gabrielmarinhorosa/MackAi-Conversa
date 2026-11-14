@@ -1,0 +1,33 @@
+# Ambiente local só do Conversas: PostgreSQL + Orquestrador falso + este serviço.
+# O compose com os três serviços reais fica no repositório do grupo (seção 11 do documento do Orquestrador).
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: mackai
+      POSTGRES_PASSWORD: mackai
+      POSTGRES_DB: conversas_db
+    ports: ["5432:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mackai -d conversas_db"]
+      interval: 2s
+      retries: 15
+
+  orquestrador:
+    build:
+      context: dev
+      dockerfile: Dockerfile.orquestrador-falso
+    ports: ["8001:8000"]
+
+  conversas:
+    build: .
+    environment:
+      DATABASE_URL: postgresql://mackai:mackai@postgres:5432/conversas_db
+      ORQUESTRADOR_URL: http://orquestrador:8000
+      SESSION_SECRET: troque-este-segredo-local-com-32-caracteres-ou-mais
+    ports: ["8000:8000"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      orquestrador:
+        condition: service_started

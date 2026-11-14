@@ -49,9 +49,22 @@ jobs:
       - run: npm ci
       - run: npm run build
 
+  # Monta a imagem em todo push e PR. Na main, publica em ghcr.io/<dono>/mackai-conversas,
+  # de onde o Container App puxa (o ACR Tasks é bloqueado na assinatura de estudante).
   imagem:
     runs-on: ubuntu-latest
     needs: [backend, frontend]
+    permissions:
+      contents: read
+      packages: write
     steps:
       - uses: actions/checkout@v4
-      - run: docker build -t mackai-conversas .
+      - name: Nome da imagem
+        run: echo "IMAGEM=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/mackai-conversas" >> "$GITHUB_ENV"
+      - run: docker build -t "$IMAGEM:${GITHUB_SHA::7}" -t "$IMAGEM:latest" .
+      - name: Publicar no GitHub Container Registry
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          docker push "$IMAGEM:${GITHUB_SHA::7}"
+          docker push "$IMAGEM:latest"

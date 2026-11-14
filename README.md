@@ -187,6 +187,8 @@ tests/
 
 ## Deploy (Azure Container Apps)
 
+Passo a passo pelo portal, incluindo o acesso dos colegas: [docs/deploy-azure.md](docs/deploy-azure.md).
+
 - Container App `mackai-conversas`, ingress **externo**, porta 8000, 0,25 vCPU e 0,5 GiB.
 - Réplicas: mínimo 0 e máximo 1 (os limites ficam em memória). No dia da apresentação, mínimo 1.
 - Secret: `DATABASE_URL`.

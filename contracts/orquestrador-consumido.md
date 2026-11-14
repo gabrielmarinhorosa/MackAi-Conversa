@@ -15,11 +15,15 @@ Cabeçalho: `X-Request-ID` (o mesmo que o Conversas recebeu ou gerou).
   "history": [
     { "role": "user", "content": "Quais User Stories podemos simplificar?" },
     { "role": "assistant", "content": "..." }
-  ]
+  ],
+  "project_id": "7a1d0f4e-2b6c-4c1e-9f3a-5d8e7c6b4a01"
 }
 ```
 
 - `history`: as 10 últimas mensagens da conversa, em ordem cronológica, cada uma cortada em 4.000 caracteres. Vazio numa conversa nova.
+- `project_id` (novo, opcional): UUID do projeto do Módulo 1 da conversa. O campo **só é enviado** quando a
+  conversa tem projeto, e o acesso da pessoa ao projeto já foi conferido pelo Conversas. O Orquestrador
+  precisa aceitar o campo (não recusar campos extras) e repassá-lo à Busca para filtrar os trechos do projeto.
 
 Resposta 200 usada pelo Conversas: `content`, `mode`, `grounded` e `sources` (cada fonte com `source`, `path`,
 `start_line`, `end_line`, `similarity` e `excerpt`). `model` e `usage` são aceitos e ignorados.

@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "6f1d8a7e-3c2b-4e59-9a0d-5b7c1e2f4a60",
     "name": "mackai-conversas",
-    "description": "API pública do mackai-conversas (Módulo 7). O pre-request da coleção obtém um token em POST /api/sessions e guarda em {{token}}.",
+    "description": "API pública do mackai-conversas (Módulo 7). O pre-request da coleção faz login no Módulo 1 (POST {{mod1AuthUrl}}/auth/token com {{email}} e {{password}} do ambiente) e guarda o access_token em {{token}}.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "auth": {
@@ -21,11 +21,18 @@
       "script": {
         "type": "text/javascript",
         "exec": [
-          "// Obtém um token anônimo uma vez e reaproveita nas outras requisições.",
-          "if (pm.request.url.getPath() === '/api/sessions' || pm.collectionVariables.get('token')) return;",
-          "pm.sendRequest({ url: pm.variables.get('baseUrl') + '/api/sessions', method: 'POST' }, (err, res) => {",
-          "  if (err) { console.error(err); return; }",
-          "  pm.collectionVariables.set('token', res.json().token);",
+          "// Faz login no Módulo 1 uma vez e reaproveita o token nas outras requisições.",
+          "if (pm.request.url.getPath() === '/auth/token' || pm.collectionVariables.get('token')) return;",
+          "pm.sendRequest({",
+          "  url: pm.variables.get('mod1AuthUrl') + '/auth/token', method: 'POST',",
+          "  header: { 'Content-Type': 'application/x-www-form-urlencoded' },",
+          "  body: { mode: 'urlencoded', urlencoded: [",
+          "    { key: 'username', value: pm.variables.get('email') },",
+          "    { key: 'password', value: pm.variables.get('password') },",
+          "  ] },",
+          "}, (err, res) => {",
+          "  if (err || res.code !== 200) { console.error('login no Módulo 1 falhou', err || res.code); return; }",
+          "  pm.collectionVariables.set('token', res.json().access_token);",
           "});"
         ]
       }
@@ -47,25 +54,43 @@
   ],
   "item": [
     {
-      "name": "Sessões",
+      "name": "Módulo 1",
       "item": [
         {
-          "name": "Criar sessão",
+          "name": "Login (POST /auth/token)",
           "request": {
             "method": "POST",
-            "header": [],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
             "url": {
-              "raw": "{{baseUrl}}/api/sessions",
+              "raw": "{{mod1AuthUrl}}/auth/token",
               "host": [
-                "{{baseUrl}}"
+                "{{mod1AuthUrl}}"
               ],
               "path": [
-                "api",
-                "sessions"
+                "auth",
+                "token"
               ]
             },
             "auth": {
               "type": "noauth"
+            },
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "username",
+                  "value": "{{email}}"
+                },
+                {
+                  "key": "password",
+                  "value": "{{password}}"
+                }
+              ]
             }
           },
           "event": [
@@ -76,8 +101,8 @@
                 "exec": [
                   "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
                   "const body = pm.response.json();",
-                  "pm.test(\"token e expires_at\", () => pm.expect(body).to.have.keys(\"token\", \"expires_at\"));",
-                  "pm.collectionVariables.set(\"token\", body.token);"
+                  "pm.test(\"access_token\", () => pm.expect(body).to.include.keys(\"access_token\"));",
+                  "pm.collectionVariables.set(\"token\", body.access_token);"
                 ]
               }
             }
@@ -435,6 +460,97 @@
               }
             }
           ]
+        },
+        {
+          "name": "Pergunta em projeto do Módulo 1",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/chat",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "chat"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message\": \"Como funciona a busca?\",\n  \"conversation_id\": null,\n  \"project_id\": \"{{projectId}}\",\n  \"profile\": \"Desenvolvedor\",\n  \"temperature\": 0.4\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "const m = pm.response.json().message;",
+                  "pm.test(\"mensagem no contrato\", () => {",
+                  "  pm.expect(m).to.include.keys(\"id\", \"role\", \"content\", \"sources\", \"grounded\", \"mode\", \"feedback\", \"created_at\");",
+                  "  pm.expect(m.role).to.eql(\"assistant\");",
+                  "  m.sources.forEach(s => pm.expect(s).to.include.keys(\"source\", \"path\", \"start_line\", \"end_line\", \"similarity\", \"excerpt\"));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Projeto sem acesso (404)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/chat",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "chat"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message\": \"Oi\",\n  \"project_id\": \"00000000-0000-0000-0000-000000000000\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 404\", () => pm.response.to.have.status(404));",
+                  "pm.test(\"code PROJETO_NAO_ENCONTRADO\", () => pm.expect(pm.response.json().code).to.eql(\"PROJETO_NAO_ENCONTRADO\"));"
+                ]
+              }
+            }
+          ]
         }
       ]
     },
@@ -502,23 +618,49 @@
           ]
         },
         {
-          "name": "Conversa de outro dono (404)",
+          "name": "Conversas do projeto",
           "request": {
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/api/conversations/{{conversationId}}",
+              "raw": "{{baseUrl}}/api/conversations?project_id={{projectId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "conversations"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"todas do projeto\", () => pm.response.json().forEach(c => pm.expect(c.project_id).to.eql(pm.environment.get(\"projectId\"))));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Conversa inexistente (404)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/conversations/00000000-0000-0000-0000-000000000000",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
                 "api",
                 "conversations",
-                "{{conversationId}}"
+                "00000000-0000-0000-0000-000000000000"
               ]
-            },
-            "auth": {
-              "type": "noauth"
             }
           },
           "event": [
@@ -529,18 +671,6 @@
                 "exec": [
                   "pm.test(\"status 404\", () => pm.response.to.have.status(404));",
                   "pm.test(\"code CONVERSA_NAO_ENCONTRADA\", () => pm.expect(pm.response.json().code).to.eql(\"CONVERSA_NAO_ENCONTRADA\"));"
-                ]
-              }
-            },
-            {
-              "listen": "prerequest",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "// Cria um segundo token só para esta requisição.",
-                  "pm.sendRequest({ url: pm.variables.get('baseUrl') + '/api/sessions', method: 'POST' }, (err, res) => {",
-                  "  pm.request.headers.upsert({ key: 'Authorization', value: 'Bearer ' + res.json().token });",
-                  "});"
                 ]
               }
             }
@@ -703,6 +833,42 @@
                 "exec": [
                   "pm.test(\"status 404\", () => pm.response.to.have.status(404));",
                   "pm.test(\"code MENSAGEM_NAO_ENCONTRADA\", () => pm.expect(pm.response.json().code).to.eql(\"MENSAGEM_NAO_ENCONTRADA\"));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Integração",
+      "item": [
+        {
+          "name": "Métricas do projeto",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/projects/{{projectId}}/metrics",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "projects",
+                "{{projectId}}",
+                "metrics"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"formato das métricas\", () => pm.expect(pm.response.json()).to.have.keys(\"project_id\", \"conversations\", \"users\", \"questions\", \"answers_up\", \"answers_down\", \"answers_not_grounded\", \"last_question_at\"));"
                 ]
               }
             }

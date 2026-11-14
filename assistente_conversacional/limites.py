@@ -26,7 +26,7 @@ class Limite:
         return True
 
     def _limpar(self, agora: float) -> None:
-        # Evita que chaves de sessões antigas fiquem para sempre na memória (US 48).
+        # Evita que chaves de usuários antigos fiquem para sempre na memória (US 48).
         if len(self._eventos) < 1000:
             return
         for chave in [c for c, f in self._eventos.items() if not f or agora - f[-1] >= self.janela_s]:
@@ -34,14 +34,6 @@ class Limite:
 
 
 class Limites:
-    def __init__(self, por_usuario: int, global_: int, sessoes_por_ip: int):
+    def __init__(self, por_usuario: int, global_: int):
         self.chat_usuario = Limite(por_usuario)
         self.chat_global = Limite(global_)
-        self.sessoes_ip = Limite(sessoes_por_ip)
-
-
-def ip_do_cliente(x_forwarded_for: str | None, ip_direto: str | None) -> str:
-    """O ingress do Container Apps coloca o IP real no primeiro item de X-Forwarded-For."""
-    if x_forwarded_for:
-        return x_forwarded_for.split(",")[0].strip()
-    return ip_direto or "desconhecido"

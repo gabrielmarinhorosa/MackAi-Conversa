@@ -10,13 +10,14 @@ from pathlib import Path
 POSTMAN = Path(__file__).resolve().parent.parent / "postman"
 
 
-def req(nome, metodo, rota, corpo=None, testes=(), auth=True, prerequest=None):
+def req(nome, metodo, rota, corpo=None, testes=(), auth=True, prerequest=None, base="{{baseUrl}}"):
+    caminho = rota.split("?")[0]
     item = {
         "name": nome,
         "request": {
             "method": metodo,
             "header": [{"key": "Content-Type", "value": "application/json"}] if corpo is not None else [],
-            "url": {"raw": "{{baseUrl}}" + rota, "host": ["{{baseUrl}}"], "path": [p for p in rota.split("/") if p]},
+            "url": {"raw": base + rota, "host": [base], "path": [p for p in caminho.split("/") if p]},
         },
         "event": [{"listen": "test", "script": {"type": "text/javascript", "exec": list(testes)}}],
     }
@@ -47,23 +48,33 @@ MENSAGEM_NO_CONTRATO = [
     "});",
 ]
 
-NOVA_SESSAO = "pm.sendRequest({ url: pm.variables.get('baseUrl') + '/api/sessions', method: 'POST' }, (err, res) => {"
+LOGIN_MODULO1 = [
+    "pm.sendRequest({",
+    "  url: pm.variables.get('mod1AuthUrl') + '/auth/token', method: 'POST',",
+    "  header: { 'Content-Type': 'application/x-www-form-urlencoded' },",
+    "  body: { mode: 'urlencoded', urlencoded: [",
+    "    { key: 'username', value: pm.variables.get('email') },",
+    "    { key: 'password', value: pm.variables.get('password') },",
+    "  ] },",
+    "}, (err, res) => {",
+]
 
 COLECAO = {
     "info": {
         "_postman_id": "6f1d8a7e-3c2b-4e59-9a0d-5b7c1e2f4a60",
         "name": "mackai-conversas",
-        "description": "API pública do mackai-conversas (Módulo 7). O pre-request da coleção obtém um token "
-                       "em POST /api/sessions e guarda em {{token}}.",
+        "description": "API pública do mackai-conversas (Módulo 7). O pre-request da coleção faz login no "
+                       "Módulo 1 (POST {{mod1AuthUrl}}/auth/token com {{email}} e {{password}} do ambiente) e "
+                       "guarda o access_token em {{token}}.",
         "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
     },
     "auth": {"type": "bearer", "bearer": [{"key": "token", "value": "{{token}}", "type": "string"}]},
     "event": [{"listen": "prerequest", "script": {"type": "text/javascript", "exec": [
-        "// Obtém um token anônimo uma vez e reaproveita nas outras requisições.",
-        "if (pm.request.url.getPath() === '/api/sessions' || pm.collectionVariables.get('token')) return;",
-        NOVA_SESSAO,
-        "  if (err) { console.error(err); return; }",
-        "  pm.collectionVariables.set('token', res.json().token);",
+        "// Faz login no Módulo 1 uma vez e reaproveita o token nas outras requisições.",
+        "if (pm.request.url.getPath() === '/auth/token' || pm.collectionVariables.get('token')) return;",
+        *LOGIN_MODULO1,
+        "  if (err || res.code !== 200) { console.error('login no Módulo 1 falhou', err || res.code); return; }",
+        "  pm.collectionVariables.set('token', res.json().access_token);",
         "});",
     ]}}],
     "variable": [
@@ -72,12 +83,21 @@ COLECAO = {
         {"key": "messageId", "value": ""},
     ],
     "item": [
-        {"name": "Sessões", "item": [
-            req("Criar sessão", "POST", "/api/sessions", auth=False, testes=status(200) + [
-                "const body = pm.response.json();",
-                'pm.test("token e expires_at", () => pm.expect(body).to.have.keys("token", "expires_at"));',
-                'pm.collectionVariables.set("token", body.token);',
-            ]),
+        {"name": "Módulo 1", "item": [
+            {**req("Login (POST /auth/token)", "POST", "/auth/token", auth=False, base="{{mod1AuthUrl}}",
+                   testes=status(200) + [
+                       "const body = pm.response.json();",
+                       'pm.test("access_token", () => pm.expect(body).to.include.keys("access_token"));',
+                       'pm.collectionVariables.set("token", body.access_token);',
+                   ]),
+             "request": {
+                 "method": "POST",
+                 "header": [{"key": "Content-Type", "value": "application/x-www-form-urlencoded"}],
+                 "url": {"raw": "{{mod1AuthUrl}}/auth/token", "host": ["{{mod1AuthUrl}}"], "path": ["auth", "token"]},
+                 "auth": {"type": "noauth"},
+                 "body": {"mode": "urlencoded", "urlencoded": [
+                     {"key": "username", "value": "{{email}}"}, {"key": "password", "value": "{{password}}"}]},
+             }},
         ]},
         {"name": "Saúde", "item": [
             req("Health da API", "GET", "/api/health", auth=False, testes=status(200) + [
@@ -113,6 +133,13 @@ COLECAO = {
                 testes=status(422)),
             req("Sem token (401)", "POST", "/api/chat", corpo={"message": "Oi"}, auth=False,
                 testes=erro(401, "NAO_AUTENTICADO")),
+            req("Pergunta em projeto do Módulo 1", "POST", "/api/chat",
+                corpo={"message": "Como funciona a busca?", "conversation_id": None, "project_id": "{{projectId}}",
+                       "profile": "Desenvolvedor", "temperature": 0.4},
+                testes=status(200) + MENSAGEM_NO_CONTRATO),
+            req("Projeto sem acesso (404)", "POST", "/api/chat",
+                corpo={"message": "Oi", "project_id": "00000000-0000-0000-0000-000000000000"},
+                testes=erro(404, "PROJETO_NAO_ENCONTRADO")),
         ]},
         {"name": "Conversas", "item": [
             req("Listar conversas", "GET", "/api/conversations", testes=status(200) + [
@@ -124,13 +151,12 @@ COLECAO = {
                 'pm.test("mensagens em ordem", () => pm.expect(c.messages.map(m => m.role))'
                 '.to.eql(["user", "assistant", "user", "assistant"]));',
             ]),
-            req("Conversa de outro dono (404)", "GET", "/api/conversations/{{conversationId}}",
-                testes=erro(404, "CONVERSA_NAO_ENCONTRADA"), auth=False, prerequest=[
-                    "// Cria um segundo token só para esta requisição.",
-                    NOVA_SESSAO,
-                    "  pm.request.headers.upsert({ key: 'Authorization', value: 'Bearer ' + res.json().token });",
-                    "});",
-                ]),
+            req("Conversas do projeto", "GET", "/api/conversations?project_id={{projectId}}", testes=status(200) + [
+                'pm.test("todas do projeto", () => pm.response.json().forEach(c => '
+                'pm.expect(c.project_id).to.eql(pm.environment.get("projectId"))));',
+            ]),
+            req("Conversa inexistente (404)", "GET", "/api/conversations/00000000-0000-0000-0000-000000000000",
+                testes=erro(404, "CONVERSA_NAO_ENCONTRADA")),
             req("Criar conversa vazia", "POST", "/api/conversations", testes=status(201) + [
                 'pm.test("título padrão", () => pm.expect(pm.response.json().title).to.eql("Nova conversa"));',
             ]),
@@ -144,12 +170,25 @@ COLECAO = {
                 corpo={"message_id": "00000000-0000-0000-0000-000000000000", "value": "up"},
                 testes=erro(404, "MENSAGEM_NAO_ENCONTRADA")),
         ]},
+        {"name": "Integração", "item": [
+            req("Métricas do projeto", "GET", "/api/projects/{{projectId}}/metrics", testes=status(200) + [
+                'pm.test("formato das métricas", () => pm.expect(pm.response.json()).to.have.keys('
+                '"project_id", "conversations", "users", "questions", "answers_up", "answers_down", '
+                '"answers_not_grounded", "last_question_at"));',
+            ]),
+        ]},
     ],
 }
 
+MOD1_AUTH_PUBLICADO = "https://mod1-auth.whitemeadow-deba1090.brazilsouth.azurecontainerapps.io"
+
+# local: Módulo 1 falso (dev/modulo1_falso.py), que aceita qualquer e-mail e senha.
+# azure: preencha email, password e projectId no Postman com a sua conta do Módulo 1. Nunca faça commit deles.
 AMBIENTES = {
-    "local": ("0b7e4c1a-2d3f-4a5b-8c6d-7e8f9a0b1c2d", "http://localhost:8000"),
-    "azure": ("1c8f5d2b-3e4a-4b6c-9d7e-8f9a0b1c2d3e", "https://<url-publica-do-mackai-conversas>"),
+    "local": ("0b7e4c1a-2d3f-4a5b-8c6d-7e8f9a0b1c2d", "http://localhost:8000", "http://localhost:8002",
+              "dev@mackai.test", "senha-local", "7a1d0f4e-2b6c-4c1e-9f3a-5d8e7c6b4a01"),
+    "azure": ("1c8f5d2b-3e4a-4b6c-9d7e-8f9a0b1c2d3e", "https://<url-publica-do-mackai-conversas>",
+              MOD1_AUTH_PUBLICADO, "", "", ""),
 }
 
 
@@ -160,10 +199,16 @@ def salvar(nome: str, conteudo: dict) -> None:
 if __name__ == "__main__":
     POSTMAN.mkdir(exist_ok=True)
     salvar("mackai-conversas.postman_collection.json", COLECAO)
-    for nome, (id_, url) in AMBIENTES.items():
+    for nome, (id_, url, mod1, email, senha, projeto) in AMBIENTES.items():
         salvar(f"mackai-{nome}.postman_environment.json", {
             "id": id_, "name": f"mackai-{nome}",
-            "values": [{"key": "baseUrl", "value": url, "type": "default", "enabled": True}],
+            "values": [
+                {"key": "baseUrl", "value": url, "type": "default", "enabled": True},
+                {"key": "mod1AuthUrl", "value": mod1, "type": "default", "enabled": True},
+                {"key": "email", "value": email, "type": "default", "enabled": True},
+                {"key": "password", "value": senha, "type": "secret", "enabled": True},
+                {"key": "projectId", "value": projeto, "type": "default", "enabled": True},
+            ],
             "_postman_variable_scope": "environment",
         })
     print("Coleção e ambientes gerados em postman/")

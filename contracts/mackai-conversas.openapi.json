@@ -2,8 +2,8 @@
   "openapi": "3.1.0",
   "info": {
     "title": "mackai-conversas",
-    "description": "\nPorta de entrada pública do MackAI (Módulo 7): sessões anônimas, conversas, mensagens e feedback.\nAs perguntas são repassadas ao `mackai-orquestrador` (`POST /v1/answers`).\n\n**Autenticação:** chame `POST /api/sessions`, guarde o `token` e envie `Authorization: Bearer <token>`\nem todas as outras rotas `/api/*` (exceto `/api/health`).\n\n**Erros:** `{\"detail\": \"mensagem legível\", \"code\": \"CODIGO\"}`. Validação continua no 422 padrão do FastAPI.\n\n**Rastreamento:** envie `X-Request-ID` para correlacionar logs; se não enviar, o serviço gera um.\n",
-    "version": "1.0.0"
+    "description": "\nPorta de entrada pública do MackAI (Módulo 7): conversas, mensagens e feedback, por usuário e por projeto\ndo Módulo 1. As perguntas são repassadas ao `mackai-orquestrador` (`POST /v1/answers`).\n\n**Autenticação:** faça login no Módulo 1 (`POST /auth/token`, formulário com `username` = e-mail e\n`password`) e envie o `access_token` como `Authorization: Bearer <token>` em todas as rotas `/api/*`\n(exceto `/api/health`). O serviço valida o JWT (RS256, JWKS do Módulo 1), confere a sessão em\n`GET /auth/me` e, quando há `project_id`, o acesso em `GET /projects/{id}/access/v2`.\n\n**Erros:** `{\"detail\": \"mensagem legível\", \"code\": \"CODIGO\"}`. Validação continua no 422 padrão do FastAPI.\n\n**Rastreamento:** envie `X-Request-ID` para correlacionar logs; se não enviar, o serviço gera um.\n",
+    "version": "2.0.0"
   },
   "paths": {
     "/health": {
@@ -19,65 +19,6 @@
             "content": {
               "application/json": {
                 "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/sessions": {
-      "post": {
-        "tags": [
-          "sessões"
-        ],
-        "summary": "Cria uma sessão anônima",
-        "operationId": "criar_sessao_api_sessions_post",
-        "parameters": [
-          {
-            "name": "x-forwarded-for",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Forwarded-For"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SessaoCriada"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "Limite de requisições por minuto",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Erro"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
               }
             }
           }
@@ -110,25 +51,51 @@
         "tags": [
           "conversas"
         ],
-        "summary": "Lista as conversas do dono do token que têm mensagens",
+        "summary": "Lista as conversas do usuário no projeto (ou as gerais) que têm mensagens",
         "operationId": "listar_conversas_api_conversations_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Sem projeto = conversas gerais.",
+              "title": "Project Id"
+            },
+            "description": "Sem projeto = conversas gerais."
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
+                  "type": "array",
                   "items": {
                     "$ref": "#/components/schemas/ResumoConversa"
                   },
-                  "type": "array",
                   "title": "Response Listar Conversas Api Conversations Get"
                 }
               }
             }
           },
           "401": {
-            "description": "Token ausente ou inválido",
+            "description": "Token do Módulo 1 ausente, inválido ou de sessão encerrada",
             "content": {
               "application/json": {
                 "schema": {
@@ -136,13 +103,38 @@
                 }
               }
             }
+          },
+          "404": {
+            "description": "Não existe, é de outro dono ou o projeto não está acessível",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Erro"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Orquestrador ou Módulo 1 indisponível",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Erro"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
           }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ]
+        }
       },
       "post": {
         "tags": [
@@ -150,6 +142,28 @@
         ],
         "summary": "Cria uma conversa vazia",
         "operationId": "criar_conversa_api_conversations_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/PedidoConversa"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Pedido"
+              }
+            }
+          }
+        },
         "responses": {
           "201": {
             "description": "Successful Response",
@@ -162,7 +176,7 @@
             }
           },
           "401": {
-            "description": "Token ausente ou inválido",
+            "description": "Token do Módulo 1 ausente, inválido ou de sessão encerrada",
             "content": {
               "application/json": {
                 "schema": {
@@ -170,13 +184,38 @@
                 }
               }
             }
+          },
+          "404": {
+            "description": "Não existe, é de outro dono ou o projeto não está acessível",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Erro"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Orquestrador ou Módulo 1 indisponível",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Erro"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
           }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ]
+        }
       }
     },
     "/api/conversations/{conversation_id}": {
@@ -215,7 +254,7 @@
             }
           },
           "401": {
-            "description": "Token ausente ou inválido",
+            "description": "Token do Módulo 1 ausente, inválido ou de sessão encerrada",
             "content": {
               "application/json": {
                 "schema": {
@@ -225,7 +264,17 @@
             }
           },
           "404": {
-            "description": "Não existe ou é de outro dono",
+            "description": "Não existe, é de outro dono ou o projeto não está acessível",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Erro"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Orquestrador ou Módulo 1 indisponível",
             "content": {
               "application/json": {
                 "schema": {
@@ -276,7 +325,7 @@
             }
           },
           "401": {
-            "description": "Token ausente ou inválido",
+            "description": "Token do Módulo 1 ausente, inválido ou de sessão encerrada",
             "content": {
               "application/json": {
                 "schema": {
@@ -286,7 +335,7 @@
             }
           },
           "404": {
-            "description": "Não existe ou é de outro dono",
+            "description": "Não existe, é de outro dono ou o projeto não está acessível",
             "content": {
               "application/json": {
                 "schema": {
@@ -306,7 +355,7 @@
             }
           },
           "503": {
-            "description": "Orquestrador indisponível",
+            "description": "Orquestrador ou Módulo 1 indisponível",
             "content": {
               "application/json": {
                 "schema": {
@@ -362,7 +411,7 @@
             }
           },
           "401": {
-            "description": "Token ausente ou inválido",
+            "description": "Token do Módulo 1 ausente, inválido ou de sessão encerrada",
             "content": {
               "application/json": {
                 "schema": {
@@ -372,7 +421,17 @@
             }
           },
           "404": {
-            "description": "Não existe ou é de outro dono",
+            "description": "Não existe, é de outro dono ou o projeto não está acessível",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Erro"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Orquestrador ou Módulo 1 indisponível",
             "content": {
               "application/json": {
                 "schema": {
@@ -398,6 +457,84 @@
           }
         ]
       }
+    },
+    "/api/projects/{project_id}/metrics": {
+      "get": {
+        "tags": [
+          "integração"
+        ],
+        "summary": "Uso do assistente no projeto, somando todas as pessoas (para dashboards e relatórios)",
+        "operationId": "metricas_api_projects__project_id__metrics_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MetricasProjeto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Token do Módulo 1 ausente, inválido ou de sessão encerrada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Erro"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Não existe, é de outro dono ou o projeto não está acessível",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Erro"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Orquestrador ou Módulo 1 indisponível",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Erro"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -408,6 +545,19 @@
             "type": "string",
             "format": "uuid",
             "title": "Id"
+          },
+          "project_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Id",
+            "description": "Projeto do Módulo 1. Nulo = conversa geral."
           },
           "title": {
             "type": "string",
@@ -429,6 +579,7 @@
         "type": "object",
         "required": [
           "id",
+          "project_id",
           "title",
           "created_at",
           "messages"
@@ -586,6 +737,68 @@
         ],
         "title": "Mensagem"
       },
+      "MetricasProjeto": {
+        "properties": {
+          "project_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Project Id"
+          },
+          "conversations": {
+            "type": "integer",
+            "title": "Conversations",
+            "description": "Conversas com pelo menos uma pergunta."
+          },
+          "users": {
+            "type": "integer",
+            "title": "Users",
+            "description": "Pessoas diferentes que perguntaram."
+          },
+          "questions": {
+            "type": "integer",
+            "title": "Questions"
+          },
+          "answers_up": {
+            "type": "integer",
+            "title": "Answers Up",
+            "description": "Respostas votadas como úteis."
+          },
+          "answers_down": {
+            "type": "integer",
+            "title": "Answers Down",
+            "description": "Respostas votadas como não úteis."
+          },
+          "answers_not_grounded": {
+            "type": "integer",
+            "title": "Answers Not Grounded",
+            "description": "Respostas que não vieram dos arquivos do projeto."
+          },
+          "last_question_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Question At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "project_id",
+          "conversations",
+          "users",
+          "questions",
+          "answers_up",
+          "answers_down",
+          "answers_not_grounded",
+          "last_question_at"
+        ],
+        "title": "MetricasProjeto"
+      },
       "Ok": {
         "properties": {
           "ok": {
@@ -618,6 +831,19 @@
             "title": "Conversation Id",
             "description": "Nulo cria uma conversa nova."
           },
+          "project_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Id",
+            "description": "Projeto do Módulo 1 da conversa nova. Ignorado quando `conversation_id` é enviado: vale o projeto da conversa."
+          },
           "profile": {
             "type": "string",
             "enum": [
@@ -648,6 +874,25 @@
             "temperature": 0.4
           }
         ]
+      },
+      "PedidoConversa": {
+        "properties": {
+          "project_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Id",
+            "description": "Projeto do Módulo 1. Exige acesso de leitura ao projeto."
+          }
+        },
+        "type": "object",
+        "title": "PedidoConversa"
       },
       "PedidoFeedback": {
         "properties": {
@@ -705,6 +950,19 @@
             "format": "uuid",
             "title": "Id"
           },
+          "project_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Id",
+            "description": "Projeto do Módulo 1. Nulo = conversa geral."
+          },
           "title": {
             "type": "string",
             "title": "Title"
@@ -718,6 +976,7 @@
         "type": "object",
         "required": [
           "id",
+          "project_id",
           "title",
           "created_at"
         ],
@@ -769,26 +1028,6 @@
         ],
         "title": "Saude"
       },
-      "SessaoCriada": {
-        "properties": {
-          "token": {
-            "type": "string",
-            "title": "Token",
-            "description": "JWT HS256. Envie em `Authorization: Bearer <token>`."
-          },
-          "expires_at": {
-            "type": "string",
-            "format": "date-time",
-            "title": "Expires At"
-          }
-        },
-        "type": "object",
-        "required": [
-          "token",
-          "expires_at"
-        ],
-        "title": "SessaoCriada"
-      },
       "ValidationError": {
         "properties": {
           "loc": {
@@ -833,7 +1072,7 @@
     "securitySchemes": {
       "HTTPBearer": {
         "type": "http",
-        "description": "Token obtido em POST /api/sessions.",
+        "description": "`access_token` obtido em `POST /auth/token` do Módulo 1.",
         "scheme": "bearer"
       }
     }

@@ -2,7 +2,10 @@ import { FormEvent, ReactNode, useEffect, useRef, useState } from "react";
 import ReactMarkdown, { Components } from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import remarkGfm from "remark-gfm";
-import { api, ApiError, ConversationSummary, COUNTER_FROM_CHARS, Health, MAX_MESSAGE_CHARS, Message, Source } from "./api";
+import {
+  api, ApiError, auth, ConversationSummary, COUNTER_FROM_CHARS, Health, MAX_MESSAGE_CHARS, Message, MOD1_FRONTEND_URL,
+  Project, Source, User,
+} from "./api";
 
 type IconName =
   | "alert"
@@ -13,6 +16,8 @@ type IconName =
   | "code"
   | "copy"
   | "file"
+  | "folder"
+  | "logout"
   | "menu"
   | "message"
   | "moon"
@@ -33,6 +38,8 @@ const paths: Record<IconName, ReactNode> = {
   code: <><path d="m8 9-3 3 3 3M16 9l3 3-3 3M14 6l-4 12" /></>,
   copy: <><rect x="8" y="8" width="11" height="11" rx="2" /><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3" /></>,
   file: <><path d="M6 3h8l4 4v14H6z" /><path d="M14 3v5h5M9 13h6M9 17h5" /></>,
+  folder: <path d="M3 6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" />,
+  logout: <><path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3" /><path d="m10 17-5-5 5-5M5 12h11" /></>,
   menu: <path d="M4 7h16M4 12h16M4 17h16" />,
   message: <path d="M20 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h9a4 4 0 0 1 4 4z" />,
   moon: <path d="M20 15.5A8.5 8.5 0 0 1 8.5 4 8.5 8.5 0 1 0 20 15.5Z" />,
@@ -67,10 +74,12 @@ const numberFormat = new Intl.NumberFormat("pt-BR");
 function errorMessage(error: unknown): string {
   if (error instanceof ApiError) {
     if (error.status === 429) return "Muitas perguntas seguidas, aguarde um minuto.";
+    if (error.code === "MODULO1_INDISPONIVEL") return "O login do Módulo 1 não respondeu. Tente novamente em instantes.";
     if (error.status === 503) return "O assistente está indisponível no momento. Tente novamente em instantes.";
+    if (error.code === "PROJETO_NAO_ENCONTRADO") return "Sua conta não tem acesso a este projeto no Módulo 1.";
     if (error.status === 404) return "Esta conversa não foi encontrada. Inicie uma nova conversa.";
     if (error.status === 422) return `A mensagem não pôde ser enviada. Use de 1 a ${numberFormat.format(MAX_MESSAGE_CHARS)} caracteres.`;
-    if (error.status === 401) return "Não foi possível criar sua sessão. Recarregue a página.";
+    if (error.status === 401) return "Sua sessão terminou. Entre novamente.";
     return error.message;
   }
   return "Não foi possível conectar ao servidor. Verifique sua conexão e tente novamente.";
@@ -181,9 +190,118 @@ function AssistantAnswer({ message, onCopy }: { message: Message; onCopy: (text:
   );
 }
 
+function initials(name: string) {
+  return name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0].toUpperCase()).join("") || "?";
+}
+
+const PROJECT_KEY = "mackai.project";
+
+function readProject(): string | null {
+  try { return localStorage.getItem(PROJECT_KEY) || null; } catch { return null; }
+}
+
+function saveProject(id: string | null) {
+  try { if (id) localStorage.setItem(PROJECT_KEY, id); else localStorage.removeItem(PROJECT_KEY); } catch { /* sem storage */ }
+}
+
+/** Login com a conta do Módulo 1 (POST /auth/token), com o passo de MFA quando a conta pede. */
+function LoginScreen({ notice, onLogin }: { notice: string; onLogin: () => void }) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [challenge, setChallenge] = useState<string | null>(null);
+  const [code, setCode] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(notice);
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      const result = challenge ? await auth.verifyMfa(challenge, code) : await auth.login(email, password);
+      if (result.status === "mfa") {
+        setChallenge(result.challenge);
+        setPassword("");
+      } else {
+        onLogin();
+      }
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) setError(challenge ? "Código inválido ou expirado." : "E-mail ou senha incorretos.");
+      else if (err instanceof ApiError) setError(`O Módulo 1 recusou o login (erro ${err.status}).`);
+      else setError("Não foi possível falar com o Módulo 1. Verifique sua conexão.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <main className="login-shell">
+      <form className="login-card" onSubmit={submit}>
+        <Logo />
+        <div className="login-copy">
+          <h1>{challenge ? "Verificação em duas etapas" : "Entrar"}</h1>
+          <p>{challenge ? "Digite o código do seu aplicativo autenticador." : "Use a conta do Módulo 1, a mesma dos outros módulos do projeto."}</p>
+        </div>
+        {error && <div className="error-banner login-error" role="alert"><Icon name="alert" size={16} /><p>{error}</p></div>}
+        {challenge
+          ? <label className="field"><span>Código</span>
+              <input value={code} onChange={(e) => setCode(e.target.value)} inputMode="numeric" autoComplete="one-time-code" autoFocus required />
+            </label>
+          : <>
+              <label className="field"><span>E-mail</span>
+                <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="username" autoFocus required />
+              </label>
+              <label className="field"><span>Senha</span>
+                <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required />
+              </label>
+            </>}
+        <button className="new-chat login-submit" type="submit" disabled={busy}>{busy ? "Entrando..." : challenge ? "Verificar" : "Entrar"}</button>
+        {challenge
+          ? <button className="link-button" type="button" onClick={() => { setChallenge(null); setCode(""); setError(""); }}>Voltar</button>
+          : <p className="login-foot">Não tem conta? <a href={MOD1_FRONTEND_URL} target="_blank" rel="noreferrer">Crie no portal do Módulo 1</a>.</p>}
+      </form>
+    </main>
+  );
+}
+
 export default function AssistenteConversacional() {
   const [dark, setDark] = useState(() => localStorage.getItem("theme") === "dark");
+  const [user, setUser] = useState<User | null>(null);
+  const [checking, setChecking] = useState(auth.isLoggedIn());
+  const [notice, setNotice] = useState("");
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = dark ? "dark" : "light";
+    localStorage.setItem("theme", dark ? "dark" : "light");
+  }, [dark]);
+
+  function loadUser() {
+    setNotice("");
+    api.me()
+      .then(setUser)
+      .catch((err) => { if (!(err instanceof ApiError && err.status === 401)) setNotice(errorMessage(err)); })
+      .finally(() => setChecking(false));
+  }
+
+  useEffect(() => {
+    auth.onSessionEnded(() => { setUser(null); setNotice("Sua sessão terminou. Entre novamente."); });
+    if (auth.isLoggedIn()) loadUser();
+  }, []);
+
+  async function logout() {
+    await auth.logout();
+    setUser(null);
+  }
+
+  if (checking) return null;
+  if (!user) return <LoginScreen notice={notice} onLogin={loadUser} />;
+  return <Chat user={user} dark={dark} setDark={setDark} onLogout={logout} />;
+}
+
+function Chat({ user, dark, setDark, onLogout }: { user: User; dark: boolean; setDark: (dark: boolean) => void; onLogout: () => void }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [projectId, setProjectId] = useState<string | null>(readProject);
   const [profile, setProfile] = useState("Desenvolvedor");
   const [temperature, setTemperature] = useState(0.4);
   const [input, setInput] = useState("");
@@ -198,14 +316,19 @@ export default function AssistenteConversacional() {
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    document.documentElement.dataset.theme = dark ? "dark" : "light";
-    localStorage.setItem("theme", dark ? "dark" : "light");
-  }, [dark]);
+    api.health().then(setHealth).catch(() => setHealth(null));
+    api.projects()
+      .then((list) => {
+        setProjects(list);
+        // Projeto guardado de outra sessão ao qual a conta não tem mais acesso.
+        if (!list.some((project) => project.id === readProject())) changeProject(null);
+      })
+      .catch(() => setProjects([]));
+  }, []);
 
   useEffect(() => {
-    api.health().then(setHealth).catch(() => setHealth(null));
-    api.conversations().then(setConversations).catch(() => undefined);
-  }, []);
+    api.conversations(projectId).then(setConversations).catch((err) => { setConversations([]); setError(errorMessage(err)); });
+  }, [projectId]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -245,10 +368,10 @@ export default function AssistenteConversacional() {
     setInput("");
     setLoading(true);
     try {
-      const response = await api.chat({ message: text, conversation_id: conversationId, profile, temperature });
+      const response = await api.chat({ message: text, conversation_id: conversationId, project_id: projectId, profile, temperature });
       setConversationId(response.conversation_id);
       setMessages((current) => [...current, response.message]);
-      api.conversations().then(setConversations).catch(() => undefined);
+      api.conversations(projectId).then(setConversations).catch(() => undefined);
     } catch (err) {
       // Nada foi gravado: tira a pergunta da tela e devolve o texto ao campo.
       setMessages((current) => current.filter((message) => message.id !== localId));
@@ -280,6 +403,17 @@ export default function AssistenteConversacional() {
     textareaRef.current?.focus();
   }
 
+  function changeProject(id: string | null) {
+    saveProject(id);
+    setProjectId(id);
+    setConversationId(null);
+    setMessages([]);
+    setError("");
+  }
+
+  const project = projects.find((item) => item.id === projectId);
+  const userInitials = initials(user.display_name);
+
   return (
     <div className="app-shell">
       {sidebarOpen && <button className="scrim" aria-label="Fechar menu" type="button" onClick={() => setSidebarOpen(false)} />}
@@ -288,6 +422,13 @@ export default function AssistenteConversacional() {
           <Logo />
           <button className="close-mobile" aria-label="Fechar menu" type="button" onClick={() => setSidebarOpen(false)}><Icon name="x" /></button>
         </div>
+        <label className="project-select">
+          <span><Icon name="folder" size={14} /> Projeto</span>
+          <select value={projectId ?? ""} onChange={(e) => changeProject(e.target.value || null)}>
+            <option value="">Sem projeto (perguntas gerais)</option>
+            {projects.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+          </select>
+        </label>
         <button className="new-chat" type="button" onClick={startNew}><Icon name="plus" size={17} /> Nova conversa</button>
         <div className="history-head"><span>Conversas recentes</span><Icon name="clock" size={14} /></div>
         <nav className="conversation-list" aria-label="Conversas recentes">
@@ -302,8 +443,9 @@ export default function AssistenteConversacional() {
         </nav>
         <div className="sidebar-spacer" />
         <div className="profile">
-          <div className="profile-avatar">{profiles[profile]}</div>
-          <div><strong>{profile}</strong><span>Projeto Integrador</span></div>
+          <div className="profile-avatar">{userInitials}</div>
+          <div><strong>{user.display_name}</strong><span>{profile}</span></div>
+          <button type="button" aria-label="Sair" title="Sair" onClick={onLogout}><Icon name="logout" size={17} /></button>
         </div>
       </aside>
 
@@ -311,7 +453,7 @@ export default function AssistenteConversacional() {
         <header className="topbar">
           <button className="menu-mobile" aria-label="Abrir menu" type="button" onClick={() => setSidebarOpen(true)}><Icon name="menu" /></button>
           <div className="topbar-title">
-            <strong>Assistente do projeto</strong>
+            <strong>{project ? project.name : "Assistente do projeto"}</strong>
             {!health
               ? <span><i className="offline" /> Serviço indisponível</span>
               : health.status === "ok"
@@ -337,7 +479,9 @@ export default function AssistenteConversacional() {
                 <div>
                   <span className="eyebrow">ASSISTENTE RAG</span>
                   <h1>Olá! Como posso ajudar?</h1>
-                  <p>Consulte o código, a documentação e o backlog do projeto em uma única conversa.</p>
+                  <p>{project
+                    ? <>Consulte o código, a documentação e o backlog de <strong>{project.name}</strong> em uma única conversa.</>
+                    : "Escolha um projeto do Módulo 1 no menu ou faça perguntas gerais."}</p>
                 </div>
               </section>
 
@@ -353,7 +497,7 @@ export default function AssistenteConversacional() {
 
             {messages.map((message) => message.role === "user"
               ? <article className="message-row user-message" key={message.id}>
-                  <div className="avatar user-avatar">{profiles[profile]}</div>
+                  <div className="avatar user-avatar">{userInitials}</div>
                   <div className="message-content"><div className="message-meta"><strong>Você</strong><span>{formatTime(message.created_at)}</span></div><p>{message.content}</p></div>
                 </article>
               : <AssistantAnswer key={message.id} message={message} onCopy={copy} />)}

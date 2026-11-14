@@ -3,6 +3,10 @@ WORKDIR /front
 COPY frontend/package*.json ./
 RUN npm ci
 COPY frontend/ ./
+# Endereços do Módulo 1 que o navegador chama. Vazios = endereços publicados do Módulo 1.
+ARG VITE_MOD1_AUTH_URL=""
+ARG VITE_MOD1_PROJECTS_URL=""
+ARG VITE_MOD1_FRONTEND_URL=""
 RUN npm run build
 
 FROM python:3.12-slim

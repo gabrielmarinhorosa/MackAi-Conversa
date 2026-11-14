@@ -1,4 +1,4 @@
-# Ambiente local só do Conversas: PostgreSQL + Orquestrador falso + este serviço.
+# Ambiente local só do Conversas: PostgreSQL + Orquestrador falso + Módulo 1 falso + este serviço.
 # O compose com os três serviços reais fica no repositório do grupo (seção 11 do documento do Orquestrador).
 services:
   postgres:
@@ -19,15 +19,29 @@ services:
       dockerfile: Dockerfile.orquestrador-falso
     ports: ["8001:8000"]
 
+  modulo1:
+    build:
+      context: dev
+      dockerfile: Dockerfile.modulo1-falso
+    ports: ["8002:8000"]
+
   conversas:
-    build: .
+    build:
+      context: .
+      args:  # o navegador chama o Módulo 1 falso pela porta publicada no host
+        VITE_MOD1_AUTH_URL: http://localhost:8002
+        VITE_MOD1_PROJECTS_URL: http://localhost:8002
     environment:
       DATABASE_URL: postgresql://mackai:mackai@postgres:5432/conversas_db
       ORQUESTRADOR_URL: http://orquestrador:8000
-      SESSION_SECRET: troque-este-segredo-local-com-32-caracteres-ou-mais
+      MOD1_AUTH_URL: http://modulo1:8000
+      MOD1_PROJECTS_URL: http://modulo1:8000
+      MOD1_JWT_ISSUER: mod1-auth-local
     ports: ["8000:8000"]
     depends_on:
       postgres:
         condition: service_healthy
       orquestrador:
+        condition: service_started
+      modulo1:
         condition: service_started

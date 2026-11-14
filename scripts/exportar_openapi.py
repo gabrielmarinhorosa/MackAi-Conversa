@@ -10,7 +10,6 @@ from pathlib import Path
 
 RAIZ = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(RAIZ))
-os.environ.setdefault("SESSION_SECRET", "x" * 32)  # só para importar o app; nada é assinado aqui
 
 from assistente_conversacional.main import app  # noqa: E402
 

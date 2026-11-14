@@ -24,7 +24,7 @@ class ClienteOrquestrador:
         """POST /v1/answers. Qualquer falha (rede, timeout, status != 200, corpo inválido) vira 503."""
         try:
             resposta = await self._http.post(
-                "/v1/answers", json=pedido.model_dump(mode="json"), headers={"X-Request-ID": request_id}
+                "/v1/answers", json=pedido.model_dump(mode="json", exclude_none=True), headers={"X-Request-ID": request_id}
             )
             resposta.raise_for_status()
             return RespostaOrquestrador.model_validate(resposta.json())

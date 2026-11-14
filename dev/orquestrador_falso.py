@@ -30,6 +30,7 @@ class Pedido(BaseModel):
     profile: Literal["Desenvolvedor", "Product Owner", "Gerente de Projetos"]
     temperature: float = Field(ge=0, le=1)
     history: list[Item] = Field(max_length=10)
+    project_id: str | None = None  # projeto do Módulo 1; ausente nas conversas gerais
 
 
 @app.get("/health")
@@ -58,7 +59,8 @@ async def answers(pedido: Pedido):
     geral = "geral" in texto
     conteudo = (
         f"**Resposta simulada** para o perfil *{pedido.profile}* "
-        f"(temperatura {pedido.temperature:.1f}, {len(pedido.history)} mensagens de histórico).\n\n"
+        f"(temperatura {pedido.temperature:.1f}, {len(pedido.history)} mensagens de histórico, "
+        f"projeto {pedido.project_id or 'nenhum'}).\n\n"
         "| Item | Valor |\n|---|---|\n| Pergunta | " + pedido.question[:80].replace("|", "/") + " |\n\n"
         "```python\nasync def exemplo() -> str:\n    return \"olá\"\n```"
     )

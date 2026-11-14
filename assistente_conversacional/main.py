@@ -15,17 +15,20 @@ from . import config, repositorio
 from .cliente_orquestrador import ClienteOrquestrador
 from .erros import ErroApi
 from .limites import Limites
+from .modulo1 import ClienteModulo1
 from .rotas import router
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 log = logging.getLogger("mackai.conversas")
 
 DESCRICAO = """
-Porta de entrada pública do MackAI (Módulo 7): sessões anônimas, conversas, mensagens e feedback.
-As perguntas são repassadas ao `mackai-orquestrador` (`POST /v1/answers`).
+Porta de entrada pública do MackAI (Módulo 7): conversas, mensagens e feedback, por usuário e por projeto
+do Módulo 1. As perguntas são repassadas ao `mackai-orquestrador` (`POST /v1/answers`).
 
-**Autenticação:** chame `POST /api/sessions`, guarde o `token` e envie `Authorization: Bearer <token>`
-em todas as outras rotas `/api/*` (exceto `/api/health`).
+**Autenticação:** faça login no Módulo 1 (`POST /auth/token`, formulário com `username` = e-mail e
+`password`) e envie o `access_token` como `Authorization: Bearer <token>` em todas as rotas `/api/*`
+(exceto `/api/health`). O serviço valida o JWT (RS256, JWKS do Módulo 1), confere a sessão em
+`GET /auth/me` e, quando há `project_id`, o acesso em `GET /projects/{id}/access/v2`.
 
 **Erros:** `{"detail": "mensagem legível", "code": "CODIGO"}`. Validação continua no 422 padrão do FastAPI.
 
@@ -33,25 +36,28 @@ em todas as outras rotas `/api/*` (exceto `/api/health`).
 """
 
 
-def criar_app(orquestrador_transport: httpx.AsyncBaseTransport | None = None) -> FastAPI:
-    """`orquestrador_transport` existe para os testes trocarem o Orquestrador por um falso."""
+def criar_app(orquestrador_transport: httpx.AsyncBaseTransport | None = None,
+              modulo1_transport: httpx.AsyncBaseTransport | None = None) -> FastAPI:
+    """Os `transport` existem para os testes trocarem o Orquestrador e o Módulo 1 por falsos."""
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        if len(config.SESSION_SECRET) < 32:
-            raise RuntimeError("SESSION_SECRET precisa ter 32 ou mais caracteres.")
         app.state.pool = await repositorio.abrir_pool(config.DATABASE_URL)
         app.state.orquestrador = ClienteOrquestrador(
             config.ORQUESTRADOR_URL, config.ORQUESTRADOR_TIMEOUT_S, config.STATUS_TIMEOUT_S,
             transport=orquestrador_transport,
         )
-        app.state.limites = Limites(config.CHAT_LIMIT_PER_USER, config.CHAT_LIMIT_GLOBAL,
-                                    config.SESSION_LIMIT_PER_IP)
+        app.state.modulo1 = ClienteModulo1(
+            config.MOD1_AUTH_URL, config.MOD1_PROJECTS_URL, config.MOD1_JWKS_URL, config.MOD1_JWT_ISSUER,
+            config.MOD1_JWT_AUDIENCE, config.MOD1_TIMEOUT_S, config.MOD1_CACHE_S, transport=modulo1_transport,
+        )
+        app.state.limites = Limites(config.CHAT_LIMIT_PER_USER, config.CHAT_LIMIT_GLOBAL)
         yield
+        await app.state.modulo1.fechar()
         await app.state.orquestrador.fechar()
         await app.state.pool.close()
 
-    app = FastAPI(title="mackai-conversas", version="1.0.0", description=DESCRICAO, lifespan=lifespan)
+    app = FastAPI(title="mackai-conversas", version="2.0.0", description=DESCRICAO, lifespan=lifespan)
 
     if config.CORS_ORIGINS:
         app.add_middleware(CORSMiddleware, allow_origins=config.CORS_ORIGINS, allow_methods=["*"],

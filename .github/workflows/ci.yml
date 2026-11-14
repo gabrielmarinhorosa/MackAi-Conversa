@@ -61,7 +61,11 @@ jobs:
       - uses: actions/checkout@v4
       - name: Nome da imagem
         run: echo "IMAGEM=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/mackai-conversas" >> "$GITHUB_ENV"
-      - run: docker build -t "$IMAGEM:${GITHUB_SHA::7}" -t "$IMAGEM:latest" .
+      # O label liga o pacote do ghcr.io a este repositório; sem ele o GITHUB_TOKEN pode não ter
+      # permissão de escrita no pacote e o push termina em "denied".
+      - run: >-
+          docker build -t "$IMAGEM:${GITHUB_SHA::7}" -t "$IMAGEM:latest"
+          --label "org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}" .
       - name: Publicar no GitHub Container Registry
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |

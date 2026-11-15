@@ -187,7 +187,7 @@ MOD1_AUTH_PUBLICADO = "https://mod1-auth.whitemeadow-deba1090.brazilsouth.azurec
 AMBIENTES = {
     "local": ("0b7e4c1a-2d3f-4a5b-8c6d-7e8f9a0b1c2d", "http://localhost:8000", "http://localhost:8002",
               "dev@mackai.test", "senha-local", "7a1d0f4e-2b6c-4c1e-9f3a-5d8e7c6b4a01"),
-    "azure": ("1c8f5d2b-3e4a-4b6c-9d7e-8f9a0b1c2d3e", "https://<url-publica-do-mackai-conversas>",
+    "azure": ("1c8f5d2b-3e4a-4b6c-9d7e-8f9a0b1c2d3e", "https://mackai-conversas.calmfield-d7c6c49f.brazilsouth.azurecontainerapps.io",
               MOD1_AUTH_PUBLICADO, "", "", ""),
 }
 

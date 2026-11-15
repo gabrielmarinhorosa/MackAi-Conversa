@@ -6,8 +6,8 @@ recebem chamadas de fora do Módulo 7.
 
 | Componente | Endereço |
 | --- | --- |
-| Front e API (`mackai-conversas`) | `https://<url-publica-do-mackai-conversas>` |
-| Documentação interativa | `https://<url-publica-do-mackai-conversas>/docs` |
+| Front e API (`mackai-conversas`) | `https://mackai-conversas.calmfield-d7c6c49f.brazilsouth.azurecontainerapps.io` |
+| Documentação interativa | `https://mackai-conversas.calmfield-d7c6c49f.brazilsouth.azurecontainerapps.io/docs` |
 | Contrato OpenAPI | [contracts/mackai-conversas.openapi.json](../contracts/mackai-conversas.openapi.json) |
 | Coleção do Postman | [postman/](../postman/) |
 
@@ -70,7 +70,7 @@ devem usar o token da pessoa que pediu a ação.
 ### Perguntar ao assistente
 
 ```bash
-curl -X POST https://<url-publica-do-mackai-conversas>/api/chat \
+curl -X POST https://mackai-conversas.calmfield-d7c6c49f.brazilsouth.azurecontainerapps.io/api/chat \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{"message": "Quais serviços dependem do banco de pedidos?", "project_id": "<uuid do projeto>",
        "conversation_id": null, "profile": "Desenvolvedor", "temperature": 0.4}'
@@ -90,7 +90,7 @@ automaticamente uma pergunta que deu timeout.
 ### Métricas do projeto (dashboard e relatórios)
 
 ```bash
-curl https://<url-publica-do-mackai-conversas>/api/projects/<uuid do projeto>/metrics \
+curl https://mackai-conversas.calmfield-d7c6c49f.brazilsouth.azurecontainerapps.io/api/projects/<uuid do projeto>/metrics \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -117,7 +117,7 @@ import httpx
 
 with httpx.Client(timeout=65) as cliente:
     resposta = cliente.post(
-        "https://<url-publica-do-mackai-conversas>/api/chat",
+        "https://mackai-conversas.calmfield-d7c6c49f.brazilsouth.azurecontainerapps.io/api/chat",
         headers={"Authorization": f"Bearer {token}"},
         json={"message": "Resuma a arquitetura do projeto", "project_id": project_id},
     )

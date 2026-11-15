@@ -145,9 +145,16 @@ digitada pelo próprio Lucas, numa chamada de vídeo com tela compartilhada, ou 
 
 Troque `<SENHA>` pela senha do administrador. Se o nome do servidor tiver sufixo, troque também `mackai-pg`.
 
+Conversas (o valor começa em `postgresql://`, sem nada antes):
+
 ```text
-Conversas: postgresql://mackai:<SENHA>@mackai-pg.postgres.database.azure.com:5432/conversas_db?sslmode=require
-Busca:     postgresql://mackai:<SENHA>@mackai-pg.postgres.database.azure.com:5432/busca_db?sslmode=require
+postgresql://mackai:<SENHA>@mackai-pg.postgres.database.azure.com:5432/conversas_db?sslmode=require
+```
+
+Busca:
+
+```text
+postgresql://mackai:<SENHA>@mackai-pg.postgres.database.azure.com:5432/busca_db?sslmode=require
 ```
 
 Envie a cadeia da Busca ao Danilo por um canal privado, nunca num grupo aberto ou no repositório. Se
